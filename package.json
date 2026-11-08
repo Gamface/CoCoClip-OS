@@ -1,0 +1,21 @@
+{
+  "name": "enterprise-agent-os",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace @agent-os/shared-types && npm run build --workspace @agent-os/governance",
+    "dev": "npm run build:packages && (npm run dev --workspace @agent-os/backend & npm run dev --workspace @agent-os/frontend)",
+    "build": "npm run build:packages && npm run build --workspace @agent-os/backend && npm run build --workspace @agent-os/frontend",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "test": "npm run build:packages && npm test --workspaces --if-present",
+    "start": "npm start --workspace @agent-os/backend",
+    "up": "docker compose up --build"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

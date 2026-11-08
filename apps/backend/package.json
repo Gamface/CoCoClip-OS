@@ -1,0 +1,33 @@
+{
+  "name": "@agent-os/backend",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-os/governance": "0.1.0",
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@composio/core": "^0.28.0",
+    "@copilotkit/runtime": "1.85.0",
+    "express": "^5.3.0",
+    "zod": "^4.6.7",
+    "@agent-os/shared-types": "0.1.0",
+    "pg": "^8.23.1",
+    "redis": "^6.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.0",
+    "vitest": "^5.1.0",
+    "@types/pg": "^8.23.1",
+    "pg-mem": "^3.0.14"
+  }
+}

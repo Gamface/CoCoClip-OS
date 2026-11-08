@@ -1,0 +1,149 @@
+{
+  "softBudgetRatio": 0.8,
+  "approvalTimeoutSec": 900,
+  "roles": [
+    {
+      "role": "*release*",
+      "toolkits": [
+        "github",
+        "linear",
+        "slack"
+      ],
+      "maxTools": 18,
+      "maxToolCallsPerRun": 30,
+      "rules": [
+        {
+          "match": "GITHUB_MERGE_*",
+          "mode": "ask",
+          "note": "merges reach production"
+        },
+        {
+          "match": "GITHUB_CREATE_A_RELEASE",
+          "mode": "ask"
+        },
+        {
+          "match": "GITHUB_DELETE_*",
+          "mode": "deny"
+        },
+        {
+          "match": "GITHUB_*_BRANCH_PROTECTION*",
+          "mode": "deny"
+        },
+        {
+          "match": "SLACK_SEND_MESSAGE",
+          "mode": "allow",
+          "note": "status updates"
+        },
+        {
+          "match": "SLACK_CHAT_POST_MESSAGE",
+          "mode": "allow"
+        },
+        {
+          "match": "LINEAR_UPDATE_ISSUE",
+          "mode": "allow"
+        }
+      ],
+      "model": "claude-sonnet-5-5",
+      "effort": "high"
+    },
+    {
+      "role": "*devops*",
+      "toolkits": [
+        "github",
+        "datadog",
+        "pagerduty",
+        "slack"
+      ],
+      "maxTools": 20,
+      "rules": [
+        {
+          "match": "PAGERDUTY_*_INCIDENT*",
+          "mode": "ask"
+        },
+        {
+          "match": "DATADOG_*_MONITOR*",
+          "mode": "ask"
+        },
+        {
+          "match": "*_DELETE_*",
+          "mode": "deny"
+        }
+      ]
+    },
+    {
+      "role": "*engineer*",
+      "toolkits": [
+        "github",
+        "linear"
+      ],
+      "rules": [
+        {
+          "match": "GITHUB_CREATE_A_PULL_REQUEST",
+          "mode": "allow"
+        },
+        {
+          "match": "GITHUB_CREATE_AN_ISSUE_COMMENT",
+          "mode": "allow"
+        },
+        {
+          "match": "GITHUB_MERGE_*",
+          "mode": "deny",
+          "note": "engineers open PRs; release merges"
+        },
+        {
+          "match": "GITHUB_DELETE_*",
+          "mode": "deny"
+        }
+      ]
+    },
+    {
+      "role": "*support*",
+      "toolkits": [
+        "gmail",
+        "zendesk",
+        "slack"
+      ],
+      "rules": [
+        {
+          "match": "GMAIL_SEND_EMAIL",
+          "mode": "ask",
+          "note": "customer-facing"
+        },
+        {
+          "match": "GMAIL_CREATE_EMAIL_DRAFT",
+          "mode": "allow"
+        },
+        {
+          "match": "ZENDESK_*_COMMENT*",
+          "mode": "ask"
+        }
+      ],
+      "model": "claude-haiku-5-5",
+      "effort": "medium"
+    },
+    {
+      "role": "*research*",
+      "toolkits": [
+        "exa",
+        "firecrawl",
+        "notion"
+      ],
+      "defaults": {
+        "read": "allow",
+        "write": "ask",
+        "destructive": "deny"
+      },
+      "model": "claude-fable-5-1",
+      "effort": "high"
+    },
+    {
+      "role": "*",
+      "toolkits": [],
+      "defaults": {
+        "read": "allow",
+        "write": "deny",
+        "destructive": "deny"
+      }
+    }
+  ]
+}

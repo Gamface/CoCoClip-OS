@@ -1,0 +1,121 @@
+# Enterprise Agent OS
+#   Paperclip  (control plane)  http://localhost:3100
+#   frontend   (Next.js + CopilotKit command center)  http://localhost:3000
+#   backend    (Express: Paperclip webhook, Composio bus, Claude workers, CopilotRuntime)  internal :8000
+#   postgres   (per-agent model settings, approval history)
+#   redis      (event + approval fan-out between backend replicas)
+#
+#   cp .env.example .env   # fill in secrets
+#   docker compose up --build
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        BACKEND_URL: http://backend:8000
+    ports: ["${FRONTEND_PORT:-3000}:3000"]
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    # Not published by default: the browser reaches it through the frontend's /api proxy, and
+    # Paperclip reaches the webhook over the compose network. Uncomment to call it from the host.
+    # ports: ["8000:8000"]
+    environment:
+      PORT: "8000"
+      DATABASE_URL: "postgresql://agent_os:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/agent_os"
+      REDIS_URL: redis://redis:6379
+      PAPERCLIP_API_URL: http://paperclip:3100/api
+      PAPERCLIP_API_KEY: "${PAPERCLIP_API_KEY:-}"
+      AGENT_OS_WEBHOOK_SECRET: "${AGENT_OS_WEBHOOK_SECRET:?set AGENT_OS_WEBHOOK_SECRET in .env}"
+      COMPOSIO_API_KEY: "${COMPOSIO_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}"
+      # Only needed if OPERATOR_MODEL is an openai/* model; workers always run on Claude.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      WORKER_MODEL: "${WORKER_MODEL:-claude-opus-5-5}"
+      WORKER_EFFORT: "${WORKER_EFFORT:-high}"
+      OPERATOR_MODEL: "${OPERATOR_MODEL:-anthropic/claude-opus-5-5}"
+      OPERATOR_TOKEN: "${OPERATOR_TOKEN:-}"
+      CONFIRM_SECRET: "${CONFIRM_SECRET:?set CONFIRM_SECRET in .env}"
+      MIRROR_APPROVALS: "${MIRROR_APPROVALS:-true}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:3000}"
+      COPILOTKIT_TELEMETRY_DISABLED: "${COPILOTKIT_TELEMETRY_DISABLED:-false}"
+    volumes:
+      - backend-data:/data
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      paperclip:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: agent_os
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: agent_os
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_os -d agent_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  paperclip:
+    # Built straight from upstream; pin a tag/commit with ...paperclip.git#<ref> for reproducible builds.
+    build:
+      context: https://github.com/paperclipai/paperclip.git
+      dockerfile: Dockerfile
+    pids_limit: 2048
+    stop_grace_period: 90s
+    ports: ["${PAPERCLIP_PORT:-3100}:3100"]
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: /paperclip
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: private
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      PAPERCLIP_ALLOWED_HOSTNAMES: "paperclip,${PAPERCLIP_ALLOWED_HOSTNAMES:-}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}"
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: "${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    volumes:
+      - paperclip-data:/paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  pgdata:
+  redisdata:
+  backend-data:
+  paperclip-data:
