@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Interactive first-time setup: creates .env with generated secrets, asks for your API keys,
+# checks Docker, and optionally starts the stack. Safe to re-run; existing values are kept.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# Set KEY=VALUE in .env (value passed via the environment so no shell/sed escaping is needed).
+set_var() {
+  KEY="$1" VAL="$2" awk 'BEGIN { k = ENVIRON["KEY"]; v = ENVIRON["VAL"]; done = 0 }
+    index($0, k "=") == 1 { print k "=" v; done = 1; next } { print }
+    END { if (!done) print k "=" v }' .env > .env.tmp && chmod 600 .env.tmp && mv .env.tmp .env
+}
+get_var() { grep -E "^$1=" .env | head -1 | cut -d= -f2- || true; }
+
+say "1/4  Environment file"
+if [ -f .env ]; then
+  echo ".env already exists; only empty values will be filled."
+else
+  cp .env.example .env
+  chmod 600 .env
+  echo "Created .env from .env.example."
+fi
+
+for k in BETTER_AUTH_SECRET PAPERCLIP_TOOL_ACTION_SIGNING_SECRET AGENT_OS_WEBHOOK_SECRET CONFIRM_SECRET POSTGRES_PASSWORD; do
+  if [ -z "$(get_var "$k")" ]; then
+    set_var "$k" "$(openssl rand -hex 32)"
+    echo "  generated $k"
+  fi
+done
+
+say "2/4  API keys (input is hidden; press Enter to skip/keep)"
+ask_key() {
+  local k="$1" label="$2" cur v
+  cur="$(get_var "$k")"
+  if [ -n "$cur" ]; then
+    printf '  %s is already set. Replace it? [y/N] ' "$label"
+    read -r yn
+    [[ "$yn" =~ ^[Yy]$ ]] || return 0
+  fi
+  printf '  %s: ' "$label"
+  read -rs v
+  echo
+  [ -n "$v" ] && set_var "$k" "$v" && echo "  saved $k"
+  return 0
+}
+ask_key ANTHROPIC_API_KEY "Anthropic API key (required)"
+ask_key COMPOSIO_API_KEY "Composio API key (optional; workers run without tools if empty)"
+ask_key OPERATOR_TOKEN "Operator token protecting the command center (optional)"
+
+if [ -z "$(get_var ANTHROPIC_API_KEY)" ]; then
+  echo "  ! ANTHROPIC_API_KEY is still empty; docker compose will refuse to start until it is set."
+fi
+
+say "3/4  Docker"
+if ! command -v docker >/dev/null; then
+  echo "Docker is not installed. Install Docker Engine + the compose plugin, then re-run this script."
+  exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is installed but your user can't reach the daemon (permission denied)."
+  echo "Fix it once with:   sudo usermod -aG docker \"$USER\"   then log out and back in."
+  echo "Or run the stack with sudo:   sudo docker compose up --build"
+  exit 1
+fi
+docker compose config -q && echo "docker-compose.yml is valid with your .env."
+
+say "4/4  Start"
+printf 'Build and start Paperclip, backend, frontend, Postgres and Redis now? [Y/n] '
+read -r go
+if [[ ! "$go" =~ ^[Nn]$ ]]; then
+  echo "First build pulls Paperclip from GitHub and can take several minutes."
+  echo "Command center: http://localhost:3000   Paperclip: http://localhost:3100"
+  exec docker compose up --build
+fi
+echo "Start later with:  docker compose up --build"

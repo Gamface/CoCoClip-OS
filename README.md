@@ -61,6 +61,14 @@ One system built from three upstream projects, each doing the job it is best at:
 
 ### Docker (Paperclip + backend + frontend + Postgres + Redis)
 
+The quickest route is the interactive setup script. It creates `.env` with generated secrets (owner-only permissions), asks for your API keys with hidden input, checks Docker and offers to start the stack. Re-running it keeps existing values.
+
+```bash
+./scripts/setup.sh
+```
+
+Or do it by hand:
+
 ```bash
 cp .env.example .env
 ```
