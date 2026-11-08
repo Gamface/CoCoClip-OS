@@ -77,11 +77,20 @@ fi
 echo "docker-compose.yml is valid with your .env."
 
 say "4/4  Start"
+fe_port="$(get_var FRONTEND_PORT)"; fe_port="${fe_port:-3000}"
+pc_port="$(get_var PAPERCLIP_PORT)"; pc_port="${pc_port:-3100}"
+port_busy() { command -v ss >/dev/null && ss -ltnH "sport = :$1" 2>/dev/null | grep -q .; }
+for pair in "FRONTEND_PORT:$fe_port" "PAPERCLIP_PORT:$pc_port"; do
+  if port_busy "${pair#*:}"; then
+    hint=""; [ "${pair%%:*}" = FRONTEND_PORT ] && hint=" and CORS_ORIGIN=http://localhost:<port>"
+    echo "  ! Port ${pair#*:} is already in use. Set ${pair%%:*}=<free port>$hint in .env, then re-run."
+  fi
+done
 printf 'Build and start Paperclip, backend, frontend, Postgres and Redis now? [Y/n] '
 read -r go
 if [[ ! "$go" =~ ^[Nn]$ ]]; then
   echo "First build pulls Paperclip from GitHub and can take several minutes."
-  echo "Command center: http://localhost:3000   Paperclip: http://localhost:3100"
+  echo "Command center: http://localhost:$fe_port   Paperclip: http://localhost:$pc_port"
   exec docker compose up --build
 fi
 echo "Start later with:  docker compose up --build"
