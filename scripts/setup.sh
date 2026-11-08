@@ -45,13 +45,19 @@ ask_key() {
   [ -n "$v" ] && set_var "$k" "$v" && echo "  saved $k"
   return 0
 }
-ask_key ANTHROPIC_API_KEY "Anthropic API key (required)"
+echo "  (Pasting shows nothing on screen. That's expected: paste once, then press Enter.)"
+ask_key ANTHROPIC_API_KEY "Anthropic API key (required, from console.anthropic.com → API Keys)"
+for _ in 1 2; do
+  [ -n "$(get_var ANTHROPIC_API_KEY)" ] && break
+  echo "  ! The Anthropic key is required; nothing will start without it."
+  ask_key ANTHROPIC_API_KEY "Anthropic API key"
+done
+if [ -z "$(get_var ANTHROPIC_API_KEY)" ]; then
+  echo "  No Anthropic key entered. Re-run ./scripts/setup.sh when you have one (other values are kept)."
+  exit 1
+fi
 ask_key COMPOSIO_API_KEY "Composio API key (optional; workers run without tools if empty)"
 ask_key OPERATOR_TOKEN "Operator token protecting the command center (optional)"
-
-if [ -z "$(get_var ANTHROPIC_API_KEY)" ]; then
-  echo "  ! ANTHROPIC_API_KEY is still empty; docker compose will refuse to start until it is set."
-fi
 
 say "3/4  Docker"
 if ! command -v docker >/dev/null; then
@@ -64,7 +70,11 @@ if ! docker info >/dev/null 2>&1; then
   echo "Or run the stack with sudo:   sudo docker compose up --build"
   exit 1
 fi
-docker compose config -q && echo "docker-compose.yml is valid with your .env."
+if ! docker compose config -q; then
+  echo "docker-compose.yml can't be used with this .env (see the error above). Fix it, then re-run this script."
+  exit 1
+fi
+echo "docker-compose.yml is valid with your .env."
 
 say "4/4  Start"
 printf 'Build and start Paperclip, backend, frontend, Postgres and Redis now? [Y/n] '
