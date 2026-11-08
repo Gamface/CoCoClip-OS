@@ -88,9 +88,10 @@ services:
       retries: 20
 
   paperclip:
-    # Built straight from upstream; pin a tag/commit with ...paperclip.git#<ref> for reproducible builds.
+    # Pinned so rebuilds don't silently pick up a newer upstream (it changes many times a day).
+    # To move to another version, set PAPERCLIP_REF=<commit> in .env and rebuild.
     build:
-      context: https://github.com/paperclipai/paperclip.git
+      context: "https://github.com/paperclipai/paperclip.git#${PAPERCLIP_REF:-fcdceaf5fbe16b5fa1b98f36b0a0c8ec06f6c7aa}"
       dockerfile: Dockerfile
     pids_limit: 2048
     stop_grace_period: 90s
