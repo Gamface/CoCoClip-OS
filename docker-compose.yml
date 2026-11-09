@@ -89,22 +89,18 @@ services:
 
   paperclip:
     # Pinned so rebuilds don't silently pick up a newer upstream (it changes many times a day).
-    # To move to another version, set PAPERCLIP_REF=<commit> in .env and rebuild.
-    build: &paperclip-build
+    # To move to another version, set PAPERCLIP_REF=<full 40-character commit> in .env and rebuild.
+    build:
       context: "https://github.com/paperclipai/paperclip.git#${PAPERCLIP_REF:-fcdceaf5fbe16b5fa1b98f36b0a0c8ec06f6c7aa}"
       dockerfile: Dockerfile
-    image: cococlip-paperclip:local
-    depends_on:
-      paperclip-provider-pack:
-        condition: service_completed_successfully
+      args:
+        # Paperclip's Dockerfile only builds its Claude/Codex (ACPX) provider pack when it knows the
+        # source commit. Without it the pack folder ships empty and the Claude adapter breaks.
+        PAPERCLIP_BUILD_COMMIT: "${PAPERCLIP_REF:-fcdceaf5fbe16b5fa1b98f36b0a0c8ec06f6c7aa}"
     pids_limit: 2048
     stop_grace_period: 90s
     ports: ["${PAPERCLIP_PORT:-3100}:3100"]
     environment:
-      # Paperclip's Claude (ACPX) adapter looks for its provider package here; the image ships the
-      # folder empty, so it lives on its own volume. Not needed for HTTP-adapter agents.
-      PAPERCLIP_ACPX_PROVIDER_PACKAGE_ROOT: /opt/paperclip-runner/provider-pack
-      PAPERCLIP_ACPX_PROVIDER_PACKAGE_MANIFEST: /opt/paperclip-runner/provider-pack/package.json
       HOST: "0.0.0.0"
       PAPERCLIP_HOME: /paperclip
       PAPERCLIP_DEPLOYMENT_MODE: authenticated
@@ -116,7 +112,6 @@ services:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       - paperclip-data:/paperclip
-      - paperclip-provider-pack:/opt/paperclip-runner/provider-pack
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
@@ -124,21 +119,8 @@ services:
       retries: 20
       start_period: 60s
 
-  # One-shot: fills the provider-pack volume (config/provider-pack/package.json) using Paperclip's own
-  # image, so platform-specific packages match. Skips when the volume is already up to date.
-  paperclip-provider-pack:
-    build: *paperclip-build
-    image: cococlip-paperclip:local
-    user: root
-    entrypoint: ["sh", "/provider-pack-src/install.sh"]
-    restart: "no"
-    volumes:
-      - ./config/provider-pack:/provider-pack-src:ro
-      - paperclip-provider-pack:/opt/paperclip-runner/provider-pack
-
 volumes:
   pgdata:
   redisdata:
   backend-data:
   paperclip-data:
-  paperclip-provider-pack:
