@@ -90,9 +90,13 @@ services:
   paperclip:
     # Pinned so rebuilds don't silently pick up a newer upstream (it changes many times a day).
     # To move to another version, set PAPERCLIP_REF=<commit> in .env and rebuild.
-    build:
+    build: &paperclip-build
       context: "https://github.com/paperclipai/paperclip.git#${PAPERCLIP_REF:-fcdceaf5fbe16b5fa1b98f36b0a0c8ec06f6c7aa}"
       dockerfile: Dockerfile
+    image: cococlip-paperclip:local
+    depends_on:
+      paperclip-provider-pack:
+        condition: service_completed_successfully
     pids_limit: 2048
     stop_grace_period: 90s
     ports: ["${PAPERCLIP_PORT:-3100}:3100"]
@@ -119,6 +123,18 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
+
+  # One-shot: fills the provider-pack volume (config/provider-pack/package.json) using Paperclip's own
+  # image, so platform-specific packages match. Skips when the volume is already up to date.
+  paperclip-provider-pack:
+    build: *paperclip-build
+    image: cococlip-paperclip:local
+    user: root
+    entrypoint: ["sh", "/provider-pack-src/install.sh"]
+    restart: "no"
+    volumes:
+      - ./config/provider-pack:/provider-pack-src:ro
+      - paperclip-provider-pack:/opt/paperclip-runner/provider-pack
 
 volumes:
   pgdata:
