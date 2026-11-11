@@ -86,3 +86,8 @@ button.ghost { background: transparent; }
 .model-picker .model-source, .model-picker .error { grid-column: 1 / -1; margin: 0; }
 .pill.model { color: var(--accent); border-color: var(--accent); }
 @media (max-width: 480px) { .model-picker { grid-template-columns: 1fr 1fr; } }
+
+/* Operator token sign-in */
+.token-gate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.token-gate-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px; min-width: 0; }
+.token-gate input { flex: 1 1 220px; min-width: 0; }

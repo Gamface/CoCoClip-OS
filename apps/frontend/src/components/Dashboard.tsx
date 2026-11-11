@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CopilotSidebar } from "@copilotkit/react-core/v2";
 import { WORKER_MODELS, type ModelInfo } from "@agent-os/shared-types";
 import { ApprovalCard } from "@agent-os/ui-kit";
-import { type Agent, type Company, api, getToken, setToken } from "@/api";
+import { type Agent, type Company, api, isAuthError } from "@/api";
 import { useLiveEvents } from "@/useLiveEvents";
 import { Workforce } from "./Workforce";
 import { AuditFeed, FirewallFeed } from "./Feeds";
 import { OperatorTools } from "./OperatorTools";
+import { TokenGate } from "./TokenGate";
 
 const decide = (id: string) => (granted: boolean, note?: string) => api(`/approvals/${id}`, { method: "POST", body: JSON.stringify({ granted, note }) });
 
@@ -22,6 +23,7 @@ export function Dashboard() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [models, setModels] = useState<readonly ModelInfo[]>(WORKER_MODELS);
+  const [tokenOpen, setTokenOpen] = useState(false);
 
   useEffect(() => {
     api<{ models: ModelInfo[] }>("/models").then((r) => setModels(r.models)).catch(() => {});
@@ -33,12 +35,12 @@ export function Dashboard() {
         setCompanies(Array.isArray(cs) ? cs : []);
         if (Array.isArray(cs) && cs[0]) setCompanyId((c) => c || cs[0]!.id);
       })
-      .catch((e) => setError(`Paperclip: ${e.message}`));
+      .catch((e) => !isAuthError(e) && setError(`Paperclip: ${e.message}`));
   }, []);
 
   const loadAgents = useCallback(() => {
     if (!companyId) return;
-    api<Agent[]>(`/workforce?companyId=${companyId}`).then(setAgents).catch((e) => setError(e.message));
+    api<Agent[]>(`/workforce?companyId=${companyId}`).then(setAgents).catch((e) => !isAuthError(e) && setError(e.message));
   }, [companyId]);
 
   useEffect(() => {
@@ -80,19 +82,11 @@ export function Dashboard() {
             </option>
           ))}
         </select>
-        <button
-          className="ghost small"
-          onClick={() => {
-            const t = prompt("Operator token (blank to clear)", getToken());
-            if (t !== null) {
-              setToken(t);
-              location.reload();
-            }
-          }}
-        >
+        <button className="ghost small" onClick={() => setTokenOpen((o) => !o)}>
           Token
         </button>
       </header>
+      <TokenGate open={tokenOpen} onClose={() => setTokenOpen(false)} />
       {error && <p className="error banner" onClick={() => setError("")}>{error}</p>}
 
       <main className="grid">

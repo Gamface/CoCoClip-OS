@@ -2,20 +2,55 @@ export type { ApprovalRecord as Approval, AuditEntry, Company, FirewallEvent, Wo
 
 const TOKEN_KEY = "agent-os.operator-token";
 
-export function getToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? "";
-  } catch {
-    return "";
+/** Operator token + "the backend asked for one" flag, shared by every component (useSyncExternalStore). */
+interface AuthState {
+  token: string;
+  /** Set when the backend answered 401: the UI shows the sign-in field. */
+  required: boolean;
+  /** Set when a token was present and the backend still answered 401. */
+  rejected: boolean;
+}
+let auth: AuthState = { token: "", required: false, rejected: false };
+let loaded = false;
+const listeners = new Set<() => void>();
+
+function emit(next: Partial<AuthState>) {
+  auth = { ...auth, ...next };
+  listeners.forEach((l) => l());
+}
+
+export function getAuth(): AuthState {
+  if (!loaded && typeof window !== "undefined") {
+    loaded = true;
+    try {
+      auth = { ...auth, token: localStorage.getItem(TOKEN_KEY) ?? "" };
+    } catch {
+      /* storage unavailable */
+    }
   }
+  return auth;
+}
+const SERVER_AUTH: AuthState = { token: "", required: false, rejected: false };
+export const getServerAuth = () => SERVER_AUTH;
+
+export function subscribeAuth(l: () => void) {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+
+export function getToken(): string {
+  return getAuth().token;
 }
 
 export function setToken(t: string) {
+  const token = t.trim();
   try {
-    localStorage.setItem(TOKEN_KEY, t);
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
   } catch {
     /* storage unavailable: token lasts for this page only */
   }
+  emit({ token, required: false, rejected: false });
 }
 
 export function authHeaders(): Record<string, string> {
@@ -23,12 +58,21 @@ export function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/** Error from api(); status 401 means the operator token is missing or wrong (the UI asks for it). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+export const isAuthError = (e: unknown) => e instanceof ApiError && e.status === 401;
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers as Record<string, string> | undefined) },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? `${res.status}`);
+  if (res.status === 401) emit({ required: true, rejected: Boolean(getToken()) });
+  if (!res.ok) throw new ApiError((body as { error?: string }).error ?? `${res.status}`, res.status);
   return body as T;
 }
