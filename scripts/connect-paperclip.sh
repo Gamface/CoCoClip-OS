@@ -93,10 +93,13 @@ read -rp "Which agents should Agent OS run? (numbers separated by spaces, or 'al
 body="$(SECRET="$secret" python3 -c 'import json,os; print(json.dumps({"adapterType":"http","adapterConfig":{"url":"http://backend:8000/paperclip/heartbeat","method":"POST","headers":{"x-agent-os-secret":os.environ["SECRET"]}}}))')"
 for n in $picks; do
   i=$((n-1)); [ "$i" -ge 0 ] && [ "$i" -lt "${#aids[@]}" ] || { echo "  skipped $n (no such agent)"; continue; }
-  if curl -fsS -o /dev/null -X PATCH "${auth[@]}" -H 'Content-Type: application/json' -d "$body" "$base/agents/${aids[$i]}"; then
+  resp="$(curl -sS -w '\n%{http_code}' -X PATCH "${auth[@]}" -H 'Content-Type: application/json' -d "$body" "$base/agents/${aids[$i]}")"
+  code="${resp##*$'\n'}"
+  if [ "${code:0:1}" = 2 ]; then
     echo "  connected ${alabels[$i]%%  (*}"
   else
-    echo "  ! failed to update ${alabels[$i]%%  (*}"
+    echo "  ! Paperclip refused to update ${alabels[$i]%%  (*} (HTTP $code):"
+    printf '%s\n' "${resp%$'\n'*}" | sed 's/^/      /'
   fi
 done
 
