@@ -27,6 +27,14 @@ curl -fsS "$base/health" >/dev/null || { echo "Paperclip isn't answering on $bas
 # The paperclip service needs the private-endpoint allowlist from docker-compose.yml.
 echo "Making sure Paperclip allows calls to the Agent OS backend..."
 docker compose up -d paperclip >/dev/null
+# Recreating the container (e.g. after the allowlist was added) restarts Paperclip; wait for it.
+printf 'Waiting for Paperclip'
+for _ in $(seq 1 90); do
+  curl -fs -o /dev/null "$base/health" && break
+  printf '.'; sleep 2
+done
+echo
+curl -fs -o /dev/null "$base/health" || { echo "Paperclip didn't come back. Check: docker compose logs --tail=40 paperclip"; exit 1; }
 
 key="$(get_var PAPERCLIP_API_KEY)"
 board_ok() { [ -n "$1" ] && curl -fs -o /dev/null -H "Authorization: Bearer $1" "$base/companies"; }
