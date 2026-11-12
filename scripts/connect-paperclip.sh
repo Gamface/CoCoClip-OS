@@ -90,9 +90,19 @@ echo "Connected agents run as Agent OS workers (Claude + Composio tools) instead
 read -rp "Which agents should Agent OS run? (numbers separated by spaces, or 'all') " picks
 [ "$picks" = all ] && picks="$(seq -s ' ' 1 "${#aids[@]}")"
 
-body="$(SECRET="$secret" python3 -c 'import json,os; print(json.dumps({"adapterType":"http","adapterConfig":{"url":"http://backend:8000/paperclip/heartbeat","method":"POST","headers":{"x-agent-os-secret":os.environ["SECRET"]}}}))')"
 for n in $picks; do
   i=$((n-1)); [ "$i" -ge 0 ] && [ "$i" -lt "${#aids[@]}" ] || { echo "  skipped $n (no such agent)"; continue; }
+  # The HTTP adapter doesn't use a Paperclip AI connection (Agent OS brings its own Claude key), and
+  # Paperclip rejects the switch while one is bound, so drop runtimeConfig.aiConnection and keep the rest.
+  current="$(curl -fsS "${auth[@]}" "$base/agents/${aids[$i]}")"
+  body="$(printf '%s' "$current" | SECRET="$secret" python3 -c '
+import json, os, sys
+a = json.load(sys.stdin)
+rc = dict(a.get("runtimeConfig") or {})
+rc.pop("aiConnection", None)
+print(json.dumps({"adapterType": "http", "runtimeConfig": rc, "adapterConfig": {
+    "url": "http://backend:8000/paperclip/heartbeat", "method": "POST",
+    "headers": {"x-agent-os-secret": os.environ["SECRET"]}}}))')"
   resp="$(curl -sS -w '\n%{http_code}' -X PATCH "${auth[@]}" -H 'Content-Type: application/json' -d "$body" "$base/agents/${aids[$i]}")"
   code="${resp##*$'\n'}"
   if [ "${code:0:1}" = 2 ]; then
