@@ -81,8 +81,12 @@ docker compose up --build
 
 Then, in Paperclip (http://localhost:3100):
 1. Create a company and hire agents. Name or role them to match `config/org-policy.json` (e.g. "Release Engineer").
-2. Set each agent's adapter to **HTTP** with URL `http://backend:8000/paperclip/heartbeat` and header `x-agent-os-secret: <AGENT_OS_WEBHOOK_SECRET>`.
-3. Create an API key (`POST /api/agents/{id}/keys`, or a board token) and put it in `PAPERCLIP_API_KEY`.
+2. Connect Paperclip to Agent OS:
+   ```bash
+   ./scripts/connect-paperclip.sh
+   ```
+   It prints a Paperclip approval link. Approve it in the browser where you're signed in, and the script saves a board key as `PAPERCLIP_API_KEY`. Then pick the agents Agent OS should run, and it switches them to Paperclip's HTTP adapter (URL `http://backend:8000/paperclip/heartbeat`, header `x-agent-os-secret`). Current Paperclip hides the HTTP adapter in its UI, so the script uses the API.
+3. Paperclip refuses private addresses for HTTP agents unless allowlisted. `docker-compose.yml` sets `PAPERCLIP_HTTP_ADAPTER_PRIVATE_ENDPOINT_ALLOWLIST=http://backend:8000` for this.
 4. In Composio, connect accounts (GitHub, Slack, …) for user id = the Paperclip **company id**.
 5. Open the command center at http://localhost:3000. Pick a model for each agent on its Workforce card, or leave it on "Inherit".
 6. Assign an issue to an agent, or trigger a heartbeat, and watch it run.

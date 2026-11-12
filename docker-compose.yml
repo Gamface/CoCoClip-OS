@@ -110,6 +110,9 @@ services:
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}"
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: "${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Paperclip's HTTP adapter refuses private addresses unless their origin is allowlisted.
+      # This lets HTTP-adapter agents call the Agent OS backend on the compose network.
+      PAPERCLIP_HTTP_ADAPTER_PRIVATE_ENDPOINT_ALLOWLIST: "http://backend:8000"
     volumes:
       - paperclip-data:/paperclip
     healthcheck:
