@@ -66,7 +66,21 @@ export class Paperclip {
   }
 
   agent = (id: string) => this.call<PcAgent>("GET", `/agents/${id}`);
-  companies = () => this.call<Array<{ id: string; name: string }>>("GET", "/companies");
+  /**
+   * Board tokens can list every company. An agent API key gets 403 "Board access required" there,
+   * so fall back to the key's own company (GET /agents/me, then GET /companies/:id).
+   */
+  companies = async (): Promise<Array<{ id: string; name: string }>> => {
+    try {
+      return await this.call<Array<{ id: string; name: string }>>("GET", "/companies");
+    } catch (e) {
+      if (!(e instanceof PaperclipError) || e.status !== 403) throw e;
+      const me = await this.call<{ companyId?: string }>("GET", "/agents/me");
+      if (!me?.companyId) throw e;
+      const c = await this.call<{ id: string; name: string }>("GET", `/companies/${me.companyId}`);
+      return [{ id: c.id, name: c.name }];
+    }
+  };
   agents = (companyId: string) => this.call<PcAgent[]>("GET", `/companies/${companyId}/agents`);
   org = (companyId: string) => this.call<unknown>("GET", `/companies/${companyId}/org`);
   wake = (agentId: string) => this.call<unknown>("POST", `/agents/${agentId}/heartbeat/invoke`, {});

@@ -150,6 +150,13 @@ api.get("/companies", async (_req, res) => {
   try {
     res.json(await pc.companies());
   } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401 || status === 403) {
+      const hint = process.env.PAPERCLIP_API_KEY
+        ? "Paperclip refused PAPERCLIP_API_KEY. Use a board token, or an agent API key (Agent → Configuration → API Keys), then restart the backend."
+        : "PAPERCLIP_API_KEY is empty. Create an agent API key in Paperclip (Agent → Configuration → API Keys), put it in .env, then restart the backend.";
+      return void res.status(502).json({ error: `${hint} (${String(e)})` });
+    }
     res.status(502).json({ error: String(e) });
   }
 });
