@@ -67,12 +67,19 @@ export class ApiError extends Error {
 export const isAuthError = (e: unknown) => e instanceof ApiError && e.status === 401;
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // Remember which token this request carried. On first load the panels fetch once before the saved
+  // token is read from storage (server snapshot), then again with it; a late 401 from that first,
+  // tokenless request must not flag the saved token as missing or rejected.
+  const sent = getToken();
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers as Record<string, string> | undefined) },
+    headers: { "Content-Type": "application/json", ...(sent ? { Authorization: `Bearer ${sent}` } : {}), ...(init.headers as Record<string, string> | undefined) },
   });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 401) emit({ required: true, rejected: Boolean(getToken()) });
+  const current = sent === getToken();
+  if (res.status === 401 && current) emit({ required: true, rejected: Boolean(sent) });
+  // A request with the current token got through, so any earlier "token required" prompt is stale.
+  if (res.status !== 401 && current && (auth.required || auth.rejected)) emit({ required: false, rejected: false });
   if (!res.ok) throw new ApiError((body as { error?: string }).error ?? `${res.status}`, res.status);
   return body as T;
 }
