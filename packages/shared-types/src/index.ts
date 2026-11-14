@@ -55,7 +55,7 @@ export type SettingSource = "agent" | "role" | "default";
 
 // ── Live state (SSE) ───────────────────────────────────────────────────────────
 
-export type WorkerStatus = "starting" | "thinking" | "calling_tool" | "awaiting_approval" | "done" | "blocked" | "error";
+export type WorkerStatus = "queued" | "starting" | "thinking" | "calling_tool" | "awaiting_approval" | "done" | "blocked" | "error";
 
 export interface WorkerState {
   agentId: string;
@@ -99,6 +99,8 @@ export interface ApprovalRecord {
   decidedBy?: string;
   note?: string;
   paperclipApprovalId?: string;
+  /** Backend replica holding the waiting run; used to recover approvals left by a replica that stopped. */
+  owner?: string;
 }
 
 export interface AuditEntry {

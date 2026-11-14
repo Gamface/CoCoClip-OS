@@ -137,6 +137,30 @@
       "effort": "high"
     },
     {
+      "role": "*general*",
+      "toolkits": [
+        "github",
+        "slack",
+        "notion"
+      ],
+      "rules": [
+        {
+          "match": "GITHUB_MERGE_*",
+          "mode": "ask",
+          "note": "merges reach production"
+        },
+        {
+          "match": "GITHUB_*_BRANCH_PROTECTION*",
+          "mode": "deny"
+        }
+      ],
+      "defaults": {
+        "read": "allow",
+        "write": "ask",
+        "destructive": "deny"
+      }
+    },
+    {
       "role": "*",
       "toolkits": [],
       "defaults": {

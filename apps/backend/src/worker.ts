@@ -14,6 +14,7 @@ import type { ComposioBus, ScopedTool } from "./composio-bus.js";
 import type { EventHub, WorkerState } from "./events.js";
 import { type Paperclip, PaperclipError, type PcIssue } from "./paperclip.js";
 import type { ContextStore } from "./context-store.js";
+import type { RunTracker } from "./recovery.js";
 
 /** Body Paperclip's `http` adapter POSTs on every heartbeat (docs/adapters/http.md). */
 export interface HeartbeatPayload {
@@ -31,6 +32,8 @@ export interface WorkerDeps {
   contextStore: ContextStore;
   policy: () => OrgPolicy;
   settings: AgentSettingsService;
+  /** Records in-flight runs so they can be recovered after a restart. Optional (tests, no database). */
+  tracker?: RunTracker;
 }
 
 const FINISH_TOOL = "finish_task";
@@ -82,6 +85,8 @@ function toClaudeTool(t: ScopedTool): BetaToolUnion {
 export class HeartbeatWorker {
   private readonly client = new Anthropic();
   private readonly running = new Map<string, AbortController>();
+  /** Tail of each agent's run chain. One run per agent at a time, so each sees the previous run's spend. */
+  private readonly agentTail = new Map<string, Promise<void>>();
 
   constructor(private readonly d: WorkerDeps) {}
 
@@ -91,11 +96,49 @@ export class HeartbeatWorker {
     return Boolean(c);
   }
 
+  /**
+   * Run one heartbeat. Heartbeats for the same agent run one after another: two at once could both
+   * pass the budget check before either reports its cost. Different agents still run in parallel.
+   */
   async run(p: HeartbeatPayload): Promise<void> {
-    const { pc, hub, audit } = this.d;
     const abort = new AbortController();
     this.running.set(p.runId, abort);
+    const prev = this.agentTail.get(p.agentId);
+    let release!: () => void;
+    const mine = new Promise<void>((r) => (release = r));
+    const tail = (prev ?? Promise.resolve()).then(() => mine);
+    this.agentTail.set(p.agentId, tail);
+    try {
+      if (prev) {
+        this.d.audit.append("heartbeat.queued", `agent:${p.agentId}`, { runId: p.runId });
+        this.d.hub.publish({
+          type: "worker",
+          data: { agentId: p.agentId, agentName: "", role: "", runId: p.runId, model: "", status: "queued", detail: "Waiting for this agent's previous run", turn: 0, toolCalls: 0, spentCents: 0, budgetCents: null, runCostCents: 0, updatedAt: new Date().toISOString() },
+        });
+        await prev;
+      }
+      if (abort.signal.aborted) {
+        const msg = "Run cancelled by operator while queued";
+        const queued = this.d.hub.workers.get(p.runId);
+        if (queued) this.d.hub.publish({ type: "worker", data: { ...queued, status: "error", detail: msg, updatedAt: new Date().toISOString() } });
+        this.d.audit.append("heartbeat.error", `agent:${p.agentId}`, { runId: p.runId, error: msg });
+        return;
+      }
+      this.d.tracker?.started({ runId: p.runId, agentId: p.agentId, companyId: p.companyId });
+      try {
+        await this.runNow(p, abort);
+      } finally {
+        this.d.tracker?.finished(p.runId);
+      }
+    } finally {
+      this.running.delete(p.runId);
+      release();
+      if (this.agentTail.get(p.agentId) === tail) this.agentTail.delete(p.agentId);
+    }
+  }
 
+  private async runNow(p: HeartbeatPayload, abort: AbortController): Promise<void> {
+    const { pc, hub, audit } = this.d;
     const agent = await pc.agent(p.agentId);
     const policy = this.d.policy();
     const role = resolveRole(policy, agent);
@@ -144,6 +187,7 @@ export class HeartbeatWorker {
         throw e;
       }
       emit({ issueId: issue.id, issueTitle: issue.title, status: "thinking" });
+      this.d.tracker?.started({ runId: p.runId, agentId: p.agentId, companyId: p.companyId, issueId: issue.id });
 
       // Firewall the inbound handoff too: issue text and comments may carry injected instructions
       // written by external tools or a compromised peer agent.
@@ -272,7 +316,6 @@ export class HeartbeatWorker {
       audit.append("heartbeat.error", `agent:${p.agentId}`, { runId: p.runId, error: msg });
       if (issue) await pc.comment(issue.id, `⚠️ Agent run ${p.runId} stopped: ${msg}`, p.runId).catch(() => {});
     } finally {
-      this.running.delete(p.runId);
       if (usage.models.size) {
         await pc
           .reportCost(

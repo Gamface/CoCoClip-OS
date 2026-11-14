@@ -40,7 +40,7 @@ export interface ApprovalOutcome {
  * Pending human decisions. A worker awaits `request()`; any surface (CopilotKit UI,
  * Paperclip board UI via the mirror, REST) settles it with `decide()`. First decision wins.
  */
-export class ApprovalBroker extends EventEmitter<{ requested: [Approval]; decided: [Approval] }> {
+export class ApprovalBroker extends EventEmitter<{ requested: [Approval]; decided: [Approval]; mirrored: [Approval] }> {
   private readonly items = new Map<string, Approval>();
   private readonly waiters = new Map<string, { resolve: (o: ApprovalOutcome) => void; timer: NodeJS.Timeout }>();
 
@@ -76,7 +76,9 @@ export class ApprovalBroker extends EventEmitter<{ requested: [Approval]; decide
 
   attachMirror(id: string, paperclipApprovalId: string) {
     const a = this.items.get(id);
-    if (a) a.paperclipApprovalId = paperclipApprovalId;
+    if (!a) return;
+    a.paperclipApprovalId = paperclipApprovalId;
+    this.emit("mirrored", a);
   }
 
   get(id: string) {

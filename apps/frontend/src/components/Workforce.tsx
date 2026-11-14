@@ -4,7 +4,7 @@ import type { ModelInfo } from "@agent-os/shared-types";
 import { BudgetBar, ModelPicker, type SettingsPatch, cents } from "@agent-os/ui-kit";
 import { type Agent, type WorkerState, api } from "@/api";
 
-const LIVE = new Set(["starting", "thinking", "calling_tool", "awaiting_approval"]);
+const LIVE = new Set(["queued", "starting", "thinking", "calling_tool", "awaiting_approval"]);
 
 export function Workforce({
   agents,
