@@ -55,7 +55,7 @@ export type SettingSource = "agent" | "role" | "default";
 
 // ── Live state (SSE) ───────────────────────────────────────────────────────────
 
-export type WorkerStatus = "starting" | "thinking" | "calling_tool" | "awaiting_approval" | "done" | "blocked" | "error";
+export type WorkerStatus = "queued" | "starting" | "thinking" | "calling_tool" | "awaiting_approval" | "done" | "blocked" | "error";
 
 export interface WorkerState {
   agentId: string;
