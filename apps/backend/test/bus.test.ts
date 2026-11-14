@@ -118,3 +118,79 @@ describe("ApprovalMirror", () => {
     expect(calls).toEqual(["reject:rejected via agent-os by user:alice: no"]);
   });
 });
+
+describe("ApprovalMirror retries", () => {
+  const req = { companyId: "c", agentId: "a", agentName: "Rel", role: "r", tool: "T", risk: "write", args: {}, reasons: [] };
+  const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+
+  it("retries a failed sync until Paperclip accepts it", async () => {
+    let failures = 2;
+    const calls: string[] = [];
+    const pc = {
+      createApproval: async () => ({ id: "pc-3", status: "pending" }),
+      approval: async () => ({ id: "pc-3", status: "pending" }),
+      approve: async () => {
+        if (failures-- > 0) throw new Error("ECONNREFUSED");
+        calls.push("approve");
+      },
+      reject: async () => calls.push("reject"),
+    } as unknown as Paperclip;
+    const audit = new AuditLog();
+    const broker = new ApprovalBroker(60);
+    const mirror = new ApprovalMirror(pc, broker, audit, 1000, [1, 1, 1]);
+    const { approval } = broker.request(req);
+    mirror.mirror(approval.id);
+    await tick();
+    broker.decide(approval.id, true, "user:alice");
+    await tick();
+    expect(calls).toEqual(["approve"]);
+    expect(audit.tail().map((e) => e.type)).toContain("approval.mirror_recovered");
+  });
+
+  it("gives up on a refusal from Paperclip and audits it", async () => {
+    const { PaperclipError } = await import("../src/paperclip.js");
+    let attempts = 0;
+    const pc = {
+      createApproval: async () => ({ id: "pc-4", status: "pending" }),
+      approval: async () => ({ id: "pc-4", status: "pending" }),
+      approve: async () => {},
+      reject: async () => {
+        attempts++;
+        throw new PaperclipError(409, "already decided");
+      },
+    } as unknown as Paperclip;
+    const audit = new AuditLog();
+    const broker = new ApprovalBroker(60);
+    const mirror = new ApprovalMirror(pc, broker, audit, 1000, [1, 1, 1]);
+    const { approval } = broker.request(req);
+    mirror.mirror(approval.id);
+    await tick();
+    broker.decide(approval.id, false, "user:alice");
+    await tick();
+    expect(attempts).toBe(1);
+    expect(audit.tail().map((e) => e.type)).toContain("approval.mirror_sync_failed");
+  });
+
+  it("syncs a decision made before Paperclip's copy existed", async () => {
+    const calls: string[] = [];
+    let release!: () => void;
+    const filed = new Promise<void>((r) => (release = r));
+    const pc = {
+      createApproval: async () => {
+        await filed;
+        return { id: "pc-5", status: "pending" };
+      },
+      approval: async () => ({ id: "pc-5", status: "pending" }),
+      approve: async () => calls.push("approve"),
+      reject: async (id: string) => calls.push(`reject:${id}`),
+    } as unknown as Paperclip;
+    const broker = new ApprovalBroker(60);
+    const mirror = new ApprovalMirror(pc, broker, new AuditLog(), 1000, [1]);
+    const { approval } = broker.request(req);
+    mirror.mirror(approval.id);
+    broker.decide(approval.id, false, "user:alice");
+    release();
+    await tick();
+    expect(calls).toEqual(["reject:pc-5"]);
+  });
+});
