@@ -142,7 +142,8 @@ config/org-policy.json  roles → toolkits → rules → default model
 If `OPERATOR_TOKEN` is set, every `/api` route on the backend requires `Authorization: Bearer <token>`. EventSource connections can pass `?token=` instead.
 
 ## Notes and limits
-- Per-agent settings and approval history persist in Postgres. In-flight runs, pending approvals and the operator context live on the replica running them, so a backend restart drops them (the tool call never executes). With Redis, a decision posted to any replica reaches the one waiting on it. The audit log is a per-replica file.
+- Per-agent settings, approval history and in-flight runs persist in Postgres. If a backend replica stops mid-run, its pending approvals are expired (and rejected in Paperclip) and its agents are woken in Paperclip so their work starts again: by the same container as soon as it restarts, or by another replica once the stopped one hasn't checked in for 90 s. A restarted run starts the task from the beginning. Each replica is identified by its hostname (override with `REPLICA_ID`). With Redis, a decision posted to any replica reaches the one waiting on it. Operator context lives in memory, and the audit log is a per-replica file.
+- Heartbeats for the same agent run one at a time on a replica, so each sees the previous run's spend before its budget check.
 - Workers always run on Claude. `OPENAI_API_KEY` is only used if you point the operator chat at an `openai/*` model.
 - Composio toolkit versions: each raw tool's `version` is pinned at execution. Tools without one run with `dangerouslySkipVersionCheck`.
 - Risk classification by slug verb is a heuristic. Use explicit rules for anything that matters.

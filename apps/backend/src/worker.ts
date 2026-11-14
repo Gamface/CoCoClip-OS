@@ -14,6 +14,7 @@ import type { ComposioBus, ScopedTool } from "./composio-bus.js";
 import type { EventHub, WorkerState } from "./events.js";
 import { type Paperclip, PaperclipError, type PcIssue } from "./paperclip.js";
 import type { ContextStore } from "./context-store.js";
+import type { RunTracker } from "./recovery.js";
 
 /** Body Paperclip's `http` adapter POSTs on every heartbeat (docs/adapters/http.md). */
 export interface HeartbeatPayload {
@@ -31,6 +32,8 @@ export interface WorkerDeps {
   contextStore: ContextStore;
   policy: () => OrgPolicy;
   settings: AgentSettingsService;
+  /** Records in-flight runs so they can be recovered after a restart. Optional (tests, no database). */
+  tracker?: RunTracker;
 }
 
 const FINISH_TOOL = "finish_task";
@@ -121,7 +124,12 @@ export class HeartbeatWorker {
         this.d.audit.append("heartbeat.error", `agent:${p.agentId}`, { runId: p.runId, error: msg });
         return;
       }
-      await this.runNow(p, abort);
+      this.d.tracker?.started({ runId: p.runId, agentId: p.agentId, companyId: p.companyId });
+      try {
+        await this.runNow(p, abort);
+      } finally {
+        this.d.tracker?.finished(p.runId);
+      }
     } finally {
       this.running.delete(p.runId);
       release();
@@ -179,6 +187,7 @@ export class HeartbeatWorker {
         throw e;
       }
       emit({ issueId: issue.id, issueTitle: issue.title, status: "thinking" });
+      this.d.tracker?.started({ runId: p.runId, agentId: p.agentId, companyId: p.companyId, issueId: issue.id });
 
       // Firewall the inbound handoff too: issue text and comments may carry injected instructions
       // written by external tools or a compromised peer agent.

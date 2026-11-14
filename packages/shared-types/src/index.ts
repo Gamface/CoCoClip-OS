@@ -99,6 +99,8 @@ export interface ApprovalRecord {
   decidedBy?: string;
   note?: string;
   paperclipApprovalId?: string;
+  /** Backend replica holding the waiting run; used to recover approvals left by a replica that stopped. */
+  owner?: string;
 }
 
 export interface AuditEntry {

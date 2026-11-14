@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { timingSafeEqual } from "node:crypto";
+import { hostname } from "node:os";
 import { z } from "zod";
 import { createCopilotExpressHandler } from "@copilotkit/runtime/v2/express";
 import { ApprovalBroker, AuditLog, ConfirmationTokens, type OrgPolicy, resolveRole } from "@agent-os/governance";
@@ -15,6 +16,7 @@ import { createOperatorRuntime } from "./operator.js";
 import { createStore } from "./store.js";
 import { type RelayCommand, createRelay } from "./relay.js";
 import { AgentSettingsService, SettingsPatch } from "./agent-settings.js";
+import { Recovery, storeRunTracker } from "./recovery.js";
 
 let policy: OrgPolicy = loadPolicy();
 const getPolicy = () => policy;
@@ -37,9 +39,13 @@ const settings = new AgentSettingsService(
 );
 const mirror = config.mirrorApprovals ? new ApprovalMirror(pc, approvals, audit) : undefined;
 const bus = new ComposioBus(config.composioKey, approvals, audit, hub, mirror?.mirror);
-const worker = new HeartbeatWorker({ pc, bus, hub, audit, contextStore, policy: getPolicy, settings });
+/** Stable per container (its hostname), so after a restart this replica recognises work it left behind. */
+const replicaId = process.env.REPLICA_ID || hostname();
+const tracker = store.kind === "postgres" ? storeRunTracker(store, replicaId) : undefined;
+const worker = new HeartbeatWorker({ pc, bus, hub, audit, contextStore, policy: getPolicy, settings, tracker });
+const recovery = new Recovery({ store, replicaId, pc, hub, audit, mirror });
 
-const persist = (a: ApprovalRecord) => store.saveApproval(a).catch((e) => console.error("[store] approval", String(e)));
+const persist = (a: ApprovalRecord) => store.saveApproval({ ...a, owner: replicaId }).catch((e) => console.error("[store] approval", String(e)));
 approvals.on("requested", (a) => {
   audit.append("approval.requested", `agent:${a.agentId}`, { id: a.id, tool: a.tool, reasons: a.reasons });
   hub.publish({ type: "approval", data: a });
@@ -50,6 +56,7 @@ approvals.on("decided", (a) => {
   hub.publish({ type: "approval", data: a });
   void persist(a);
 });
+approvals.on("mirrored", (a) => void persist(a));
 audit.onAppend((e) => hub.publish({ type: "audit", data: e as AuditEntry }));
 
 /** Commands from other replicas: only the replica holding the pending approval / run acts. */
@@ -257,8 +264,10 @@ app.get("/healthz", (_req, res) =>
 async function main() {
   await store.init();
   await relay.start((e) => hub.deliver(e), onCommand);
+  // Only Postgres outlives a restart; the memory store has nothing to recover.
+  if (store.kind === "postgres") await recovery.start();
   const server = app.listen(config.port, () => {
-    console.log(`agent-os backend on :${config.port}  (store: ${store.kind}, relay: ${relay.kind})`);
+    console.log(`agent-os backend on :${config.port}  (store: ${store.kind}, relay: ${relay.kind}, replica: ${replicaId})`);
     console.log(`  Paperclip webhook  POST /paperclip/heartbeat`);
     console.log(`  CopilotKit runtime      /api/copilotkit  (model ${config.operatorModel})`);
     console.log(`  Default worker model    ${config.workerModel} @ effort ${config.workerEffort} (per-role / per-agent overrides apply)`);
@@ -266,6 +275,7 @@ async function main() {
   });
   const stop = () => {
     server.close();
+    recovery.stop();
     void Promise.allSettled([relay.close(), store.close()]).then(() => process.exit(0));
   };
   process.once("SIGTERM", stop);
